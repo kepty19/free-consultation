@@ -4,8 +4,9 @@
  * 上流はスプレッドシート「calendar」。
  * 2行で1日。時刻の下のチェックがONなら、その時刻〜右隣の時刻の1時間が稼働。
  * 予約枠はその1時間を20分×3本に割る（例: 18時チェック → 18:00 / 18:20 / 18:40）。
- * 予約ローデータは同ブックの「data」シート A〜D 列へ書く
+ * 予約ローデータは同ブックの「data」「raw」シート A〜D 列へ書く
  * （A=LINE_UserID, B=date, C=time, D=remind message）。
+ * 既存のカレンダー予約を流し込むときは、エディタで backfillExistingBookingsToRaw を実行する。
  *
  * デプロイ:
  * 1. このコードを、カレンダーとスプシの両方に権限がある Google アカウントの Apps Script に貼る
@@ -28,6 +29,7 @@ var LEAD_MINUTES = 60;
 var SPREADSHEET_ID = '1OLiHIs7HjtlSxE9j3ETGhlE8efjiayomMpmYb-376U0';
 var SHEET_NAME = 'calendar';
 var DATA_SHEET_NAME = 'data';
+var RAW_SHEET_NAME = 'raw';
 var DATA_HEADERS = ['LINE_UserID', 'date', 'time', 'remind message'];
 var AVAILABILITY_TITLE = 'Online Lesson Booking Slot';
 var AVAILABILITY_TAG = 'SHEET_AVAILABILITY:true';
@@ -391,22 +393,114 @@ function getCalendarSheet_() {
   return sheet;
 }
 
-function getDataSheet_() {
+function getOrCreateSheet_(name) {
   var spreadsheet = getSpreadsheet_();
-  var sheet = spreadsheet.getSheetByName(DATA_SHEET_NAME);
+  var sheet = spreadsheet.getSheetByName(name);
   if (!sheet) {
-    sheet = spreadsheet.insertSheet(DATA_SHEET_NAME);
+    sheet = spreadsheet.insertSheet(name);
     sheet.getRange(1, 1, 1, DATA_HEADERS.length).setValues([DATA_HEADERS]);
   }
   return sheet;
 }
 
+function getDataSheet_() {
+  return getOrCreateSheet_(DATA_SHEET_NAME);
+}
+
+function getRawSheet_() {
+  return getOrCreateSheet_(RAW_SHEET_NAME);
+}
+
 function appendBookingRaw_(userId, date, time, remindMessage) {
-  getDataSheet_().appendRow([userId, date, time, remindMessage || '']);
+  var row = [userId, date, time, remindMessage || ''];
+  appendBookingRawRows_(getDataSheet_(), [row]);
+  appendBookingRawRows_(getRawSheet_(), [row]);
+}
+
+/**
+ * エディタから手動実行する。
+ * Googleカレンダーの今後のレッスン予約を raw（なければ作成）と data の A〜D へ流し込む。
+ * 既に同じ LINE_UserID + date + time がある行は重複追加しない。
+ */
+function backfillExistingBookingsToRaw() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var rows = collectUpcomingBookingRawRows_();
+    var added = appendBookingRawRows_(getRawSheet_(), rows);
+    appendBookingRawRows_(getDataSheet_(), rows);
+    Logger.log('backfillExistingBookingsToRaw: added ' + added + ' row(s)');
+    return { ok: true, added: added };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function collectUpcomingBookingRawRows_() {
+  var now = new Date();
+  var from = new Date(now.getTime() - DURATION_MINUTES * 60 * 1000);
+  var to = parseTokyoDate_(tokyoPlusDays_(120));
+  var rows = [];
+  var seen = {};
+
+  getCalendar_().getEvents(from, to).forEach(function (event) {
+    if (!isOurBooking_(event)) return;
+    if (isSheetAvailability_(event)) return;
+    if (event.getEndTime().getTime() <= now.getTime()) return;
+    var start = event.getStartTime();
+    var userId = valueOf_(event.getDescription() || '', 'LINE_USER_ID');
+    if (!userId) return;
+    var date = tokyoDateString_(start);
+    var time = Utilities.formatDate(start, TZ, 'HH:mm');
+    var key = bookingRawKey_(userId, date, time);
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    rows.push([userId, date, time, eveLineMessage_(start)]);
+  });
+
+  return rows;
+}
+
+function existingBookingRawKeys_(sheet) {
+  var existing = {};
+  var values = sheet.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    var key = bookingRawKey_(
+      String(values[i][0] != null ? values[i][0] : '').trim(),
+      sheetDateToYmd_(values[i][1]),
+      sheetTimeToHm_(values[i][2])
+    );
+    if (key) existing[key] = true;
+  }
+  return existing;
+}
+
+function appendBookingRawRows_(sheet, rows) {
+  var existing = existingBookingRawKeys_(sheet);
+  var fresh = [];
+  for (var i = 0; i < rows.length; i++) {
+    var key = bookingRawKey_(rows[i][0], rows[i][1], rows[i][2]);
+    if (!key || existing[key]) continue;
+    existing[key] = true;
+    fresh.push(rows[i]);
+  }
+  if (fresh.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, fresh.length, 4).setValues(fresh);
+  }
+  return fresh.length;
+}
+
+function bookingRawKey_(userId, date, time) {
+  if (!userId || !date || !time) return '';
+  return userId + '|' + date + '|' + time;
 }
 
 function removeBookingRaw_(userId, date, time) {
-  var sheet = getDataSheet_();
+  removeBookingRawFromSheet_(getDataSheet_(), userId, date, time);
+  removeBookingRawFromSheet_(getRawSheet_(), userId, date, time);
+}
+
+function removeBookingRawFromSheet_(sheet, userId, date, time) {
   var values = sheet.getDataRange().getValues();
   for (var i = values.length - 1; i >= 1; i--) {
     var rowUserId = String(values[i][0] != null ? values[i][0] : '').trim();
