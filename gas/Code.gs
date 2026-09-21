@@ -4,6 +4,8 @@
  * 上流はスプレッドシート「calendar」。
  * 2行で1日。時刻の下のチェックがONなら、その時刻〜右隣の時刻の1時間が稼働。
  * 予約枠はその1時間を20分×3本に割る（例: 18時チェック → 18:00 / 18:20 / 18:40）。
+ * 予約ローデータは同ブックの「data」シート A〜D 列へ書く
+ * （A=LINE_UserID, B=date, C=time, D=remind message）。
  *
  * デプロイ:
  * 1. このコードを、カレンダーとスプシの両方に権限がある Google アカウントの Apps Script に貼る
@@ -25,6 +27,8 @@ var DURATION_MINUTES = 20;
 var LEAD_MINUTES = 60;
 var SPREADSHEET_ID = '1OLiHIs7HjtlSxE9j3ETGhlE8efjiayomMpmYb-376U0';
 var SHEET_NAME = 'calendar';
+var DATA_SHEET_NAME = 'data';
+var DATA_HEADERS = ['LINE_UserID', 'date', 'time', 'remind message'];
 var AVAILABILITY_TITLE = 'Online Lesson Booking Slot';
 var AVAILABILITY_TAG = 'SHEET_AVAILABILITY:true';
 var AVAILABILITY_COLOR = CalendarApp.EventColor.PALE_BLUE;
@@ -86,6 +90,7 @@ function doPost(e) {
 
     var confirmText = bookingLineMessage_(start);
     sendLine_(userId, confirmText);
+    appendBookingRaw_(userId, date, time, eveLineMessage_(start));
 
     return json_({
       success: true,
@@ -330,8 +335,12 @@ function cancelBooking_(userId, eventId) {
     return { success: false, message: '開始済みの予約は取り消せません。' };
   }
 
-  var when = formatLessonWhen_(event.getStartTime());
+  var start = event.getStartTime();
+  var when = formatLessonWhen_(start);
+  var date = tokyoDateString_(start);
+  var time = Utilities.formatDate(start, TZ, 'HH:mm');
   event.deleteEvent();
+  removeBookingRaw_(userId, date, time);
   sendLine_(userId, cancelLineMessage_(when));
   return { success: true, message: when + ' の予約を取り消しました。' };
 }
@@ -371,12 +380,43 @@ function findSlot_(date, time) {
   return null;
 }
 
-function getCalendarSheet_() {
+function getSpreadsheet_() {
   var id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || SPREADSHEET_ID;
-  var spreadsheet = SpreadsheetApp.openById(id);
-  var sheet = spreadsheet.getSheetByName(SHEET_NAME);
+  return SpreadsheetApp.openById(id);
+}
+
+function getCalendarSheet_() {
+  var sheet = getSpreadsheet_().getSheetByName(SHEET_NAME);
   if (!sheet) throw new Error('calendarシートが見つかりません');
   return sheet;
+}
+
+function getDataSheet_() {
+  var spreadsheet = getSpreadsheet_();
+  var sheet = spreadsheet.getSheetByName(DATA_SHEET_NAME);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(DATA_SHEET_NAME);
+    sheet.getRange(1, 1, 1, DATA_HEADERS.length).setValues([DATA_HEADERS]);
+  }
+  return sheet;
+}
+
+function appendBookingRaw_(userId, date, time, remindMessage) {
+  getDataSheet_().appendRow([userId, date, time, remindMessage || '']);
+}
+
+function removeBookingRaw_(userId, date, time) {
+  var sheet = getDataSheet_();
+  var values = sheet.getDataRange().getValues();
+  for (var i = values.length - 1; i >= 1; i--) {
+    var rowUserId = String(values[i][0] != null ? values[i][0] : '').trim();
+    var rowDate = sheetDateToYmd_(values[i][1]);
+    var rowTime = sheetTimeToHm_(values[i][2]);
+    if (rowUserId === userId && rowDate === date && rowTime === time) {
+      sheet.deleteRow(i + 1);
+      return;
+    }
+  }
 }
 
 function getCalendar_() {
