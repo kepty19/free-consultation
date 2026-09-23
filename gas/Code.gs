@@ -19,7 +19,7 @@
  *    - アクセスできるユーザー: 全員
  * 4. トリガー:
  *    - checkAndSendReminders … 10分おき（前日21時のLINE案内。1時間前リマインドは送らない）
- *    - syncAvailabilityToCalendar … 1分おき（スプシの稼働をカレンダーへ反映）
+ *    - syncAvailabilityToCalendar … 1分おき（チェックの有無を空き枠へ反映。外した日も消す）
  */
 
 var TZ = 'Asia/Tokyo';
@@ -242,22 +242,21 @@ function syncAvailabilityToCalendar() {
     var days = loadAvailabilityDays_();
     var today = tokyoDateString_(new Date());
     var desired = {};
-    var minStart = null;
-    var maxEnd = null;
+    // チェックが無い日も読み取る。最後のチェック日で範囲を切ると、その後の空き枠が残る。
+    var latestDate = tokyoPlusDays_(180);
 
     Object.keys(days).forEach(function (date) {
       if (date < today) return;
-      days[date].forEach(function (win) {
+      if (date > latestDate) latestDate = date;
+      (days[date] || []).forEach(function (win) {
         var key = date + '|' + Utilities.formatDate(win.start, TZ, 'HH:mm') + '|' + Utilities.formatDate(win.end, TZ, 'HH:mm');
         desired[key] = win;
-        if (!minStart || win.start.getTime() < minStart.getTime()) minStart = win.start;
-        if (!maxEnd || win.end.getTime() > maxEnd.getTime()) maxEnd = win.end;
       });
     });
 
     var calendar = getCalendar_();
     var rangeStart = parseTokyoDate_(today);
-    var rangeEnd = maxEnd ? endOfDay_(maxEnd) : endOfDay_(rangeStart);
+    var rangeEnd = endOfDay_(parseTokyoDate_(latestDate));
     var existing = calendar.getEvents(rangeStart, rangeEnd);
     var kept = {};
 
