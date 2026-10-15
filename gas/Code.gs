@@ -18,7 +18,9 @@
  *    - 次のユーザーとして実行: 自分
  *    - アクセスできるユーザー: 全員
  * 4. トリガー:
- *    - checkAndSendReminders … 10分おき（前日21時のLINE案内。1時間前リマインドは送らない）
+ *    - checkAndSendReminders … 10分おき
+ *      （予約した本人へは前日21時のLINE案内のみ。1時間前は本人へ送らない）
+ *      （STAFF_LINE_USER_IDS へは、前日21時と開始およそ1時間前も送る）
  *    - syncAvailabilityToCalendar … 1分おき（チェックの有無を空き枠へ反映。外した日も消す）
  */
 
@@ -35,6 +37,10 @@ var AVAILABILITY_TITLE = 'Online Lesson Booking Slot';
 var AVAILABILITY_TAG = 'SHEET_AVAILABILITY:true';
 var AVAILABILITY_COLOR = CalendarApp.EventColor.PALE_BLUE;
 var BOOKING_TITLE_PREFIX = 'Lesson Booking';
+var STAFF_LINE_USER_IDS = [
+  'Ud0fefb32063023e68af8a6be50201e19',
+  'U9de56864ced4187e6270d26ece292bcd'
+];
 var ZOOM_URL = 'https://us05web.zoom.us/j/82772210913?pwd=ZuUZhN09KfLOz2oyZuafZZEH5GdaJI.1';
 var WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -93,6 +99,9 @@ function doPost(e) {
     var confirmText = bookingLineMessage_(start);
     sendLine_(userId, confirmText);
     appendBookingRaw_(userId, date, time, eveLineMessage_(start));
+    var lessonNo = String(lessonNoFromRaw_(userId, date, time));
+    setDescFlag_(event, 'LESSON_NO', lessonNo);
+    sendLineToStaff_(staffBookingMessage_(calendarStudentName_(userName), lessonNo, start));
 
     return json_({
       success: true,
@@ -108,10 +117,12 @@ function doPost(e) {
 
 function sendReminders() {
   sendEveReminders_();
+  sendStaffHourReminders_();
 }
 
 function checkAndSendReminders() {
   sendEveReminders_();
+  sendStaffHourReminders_();
 }
 
 function sendEveReminders_() {
@@ -126,14 +137,47 @@ function sendEveReminders_() {
     var desc = event.getDescription() || '';
     var userId = valueOf_(desc, 'LINE_USER_ID');
     var sent = valueOf_(desc, 'PREV_DAY_REMINDER_SENT');
-    if (!userId || sent === 'true') return;
-
-    sendLine_(userId, eveLineMessage_(event.getStartTime()));
-    if (desc.indexOf('PREV_DAY_REMINDER_SENT:false') !== -1) {
-      event.setDescription(desc.replace('PREV_DAY_REMINDER_SENT:false', 'PREV_DAY_REMINDER_SENT:true'));
-    } else if (desc.indexOf('PREV_DAY_REMINDER_SENT:') === -1) {
-      event.setDescription(desc + '\nPREV_DAY_REMINDER_SENT:true');
+    if (!userId) return;
+    if (sent !== 'true') {
+      sendLine_(userId, eveLineMessage_(event.getStartTime()));
+      if (desc.indexOf('PREV_DAY_REMINDER_SENT:false') !== -1) {
+        event.setDescription(desc.replace('PREV_DAY_REMINDER_SENT:false', 'PREV_DAY_REMINDER_SENT:true'));
+      } else if (desc.indexOf('PREV_DAY_REMINDER_SENT:') === -1) {
+        event.setDescription(desc + '\nPREV_DAY_REMINDER_SENT:true');
+      }
+      desc = event.getDescription() || '';
     }
+    notifyStaffEve_(event, desc);
+  });
+}
+
+function notifyStaffEve_(event, desc) {
+  if (valueOf_(desc, 'STAFF_EVE_SENT') === 'true') return;
+  var userId = valueOf_(desc, 'LINE_USER_ID');
+  if (!userId) return;
+  var start = event.getStartTime();
+  var name = calendarStudentName_(valueOf_(desc, 'LINE_DISPLAY_NAME'));
+  var lessonNo = lessonNumber_(event);
+  sendLineToStaff_(staffEveMessage_(name, lessonNo, start));
+  setDescFlag_(event, 'STAFF_EVE_SENT', 'true');
+}
+
+function sendStaffHourReminders_() {
+  var now = new Date();
+  // getEvents の終端は含まないので、開始ちょうど60分前の予定も拾う。
+  var horizon = new Date(now.getTime() + 61 * 60 * 1000);
+  getCalendar_().getEvents(now, horizon).forEach(function (event) {
+    if (!isOurBooking_(event)) return;
+    var start = event.getStartTime();
+    var remaining = start.getTime() - now.getTime();
+    if (remaining <= 0 || remaining > 60 * 60 * 1000) return;
+    var desc = event.getDescription() || '';
+    if (valueOf_(desc, 'STAFF_HOUR_SENT') === 'true') return;
+    if (!valueOf_(desc, 'LINE_USER_ID')) return;
+    var name = calendarStudentName_(valueOf_(desc, 'LINE_DISPLAY_NAME'));
+    var lessonNo = lessonNumber_(event);
+    sendLineToStaff_(staffHourMessage_(name, lessonNo, start));
+    setDescFlag_(event, 'STAFF_HOUR_SENT', 'true');
   });
 }
 
@@ -570,6 +614,69 @@ function pad2_(n) {
   return (n < 10 ? '0' : '') + n;
 }
 
+function sendLineToStaff_(text) {
+  STAFF_LINE_USER_IDS.forEach(function (id) {
+    sendLine_(id, text);
+  });
+}
+
+function lessonNoFromRaw_(userId, date, time) {
+  var values = getRawSheet_().getDataRange().getValues();
+  var index = 0;
+  var found = 0;
+  for (var i = 1; i < values.length; i++) {
+    var rowUserId = String(values[i][0] != null ? values[i][0] : '').trim();
+    if (rowUserId !== userId) continue;
+    index++;
+    var rowDate = sheetDateToYmd_(values[i][1]);
+    var rowTime = sheetTimeToHm_(values[i][2]);
+    if (rowDate === date && rowTime === time) found = index;
+  }
+  if (found) return found;
+  return index + 1;
+}
+
+function lessonNumber_(event) {
+  var desc = event.getDescription() || '';
+  var stored = valueOf_(desc, 'LESSON_NO');
+  if (stored && stored !== '0') return stored;
+  var userId = valueOf_(desc, 'LINE_USER_ID');
+  var start = event.getStartTime();
+  var no = String(lessonNoFromRaw_(userId, tokyoDateString_(start), Utilities.formatDate(start, TZ, 'HH:mm')));
+  setDescFlag_(event, 'LESSON_NO', no);
+  return no;
+}
+
+function setDescFlag_(event, key, value) {
+  var desc = event.getDescription() || '';
+  var pattern = new RegExp(key + ':([^\\n]*)');
+  if (pattern.test(desc)) {
+    event.setDescription(desc.replace(pattern, key + ':' + value));
+  } else {
+    event.setDescription(desc + '\n' + key + ':' + value);
+  }
+}
+
+function formatStaffDate_(date) {
+  return Utilities.formatDate(date, TZ, 'dd/MM');
+}
+
+function formatStaffTime_(date) {
+  return Utilities.formatDate(date, TZ, 'HH:mm');
+}
+
+function staffBookingMessage_(name, lessonNo, start) {
+  return 'New Booking: ' + name + ' booked lesson #' + lessonNo + ' for ' + formatStaffDate_(start) + ' at ' + formatStaffTime_(start) + '.';
+}
+
+function staffEveMessage_(name, lessonNo, start) {
+  return 'Reminder: ' + name + ' has lesson #' + lessonNo + ' tomorrow (' + formatStaffDate_(start) + ') at ' + formatStaffTime_(start) + '.';
+}
+
+function staffHourMessage_(name, lessonNo, start) {
+  return "Reminder: " + name + "'s lesson #" + lessonNo + ' starts in 1 hour (' + formatStaffDate_(start) + ' at ' + formatStaffTime_(start) + ').';
+}
+
 function sendLine_(userId, text) {
   var token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
   if (!token || !userId) return;
@@ -664,6 +771,8 @@ function bookingDescription_(userId, userName) {
     'LINE_USER_ID:' + userId,
     'LINE_DISPLAY_NAME:' + userName,
     'PREV_DAY_REMINDER_SENT:false',
+    'STAFF_EVE_SENT:false',
+    'STAFF_HOUR_SENT:false',
     'Meeting link:',
     ZOOM_URL
   ].join('\n');
