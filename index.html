@@ -85,30 +85,31 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      padding: 12px 14px;
-      background: var(--kepty-light-orange);
-      border-color: var(--kepty-mid-orange);
+      padding: 13px 14px;
+      background: #fff;
+      border: 1px solid #C4B8B0;
+      border-radius: 12px;
     }
 
     .avatar {
-      width: 40px;
-      height: 40px;
+      width: 36px;
+      height: 36px;
       border-radius: 50%;
-      background: var(--kepty-orange);
+      background: #2A221F;
       color: #fff;
       display: grid;
       place-items: center;
-      font-size: 14px;
-      font-weight: 800;
+      font-size: 13px;
+      font-weight: 700;
       flex-shrink: 0;
     }
 
     .account-label {
       margin: 0;
       font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      color: var(--kepty-orange-deep);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--muted);
     }
 
     .account-name {
@@ -218,22 +219,86 @@
     }
 
     .slot {
-      padding: 12px 6px;
-      border-radius: 14px;
-      border: 1.5px solid var(--kepty-mid-orange);
-      background: var(--kepty-light-orange);
-      color: var(--kepty-orange-deep);
-      font-size: 15px;
-      font-weight: 800;
+      padding: 11px 4px;
+      border-radius: 8px;
+      border: 1px solid #D5CDC8;
+      background: #fff;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
       cursor: pointer;
     }
 
-    .slot:hover { background: #ffd8cc; }
+    .slot:hover {
+      border-color: #B7AEA8;
+      background: #FBF9F8;
+    }
 
     .slot.is-selected {
       background: var(--kepty-orange);
       border-color: var(--kepty-orange);
       color: #fff;
+    }
+
+    .lesson-format {
+      margin-top: 16px;
+    }
+
+    .lesson-format .field-label {
+      margin-top: 0;
+    }
+
+    .lesson-options {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .lesson-option {
+      position: relative;
+      width: 100%;
+      min-height: 64px;
+      padding: 12px 14px 12px 42px;
+      border-radius: 10px;
+      border: 1px solid #D5CDC8;
+      background: #fff;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.45;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .lesson-option::before {
+      content: "";
+      position: absolute;
+      left: 14px;
+      top: 16px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 1.5px solid #C3BAB5;
+      background: #fff;
+      box-sizing: border-box;
+    }
+
+    .lesson-option:hover {
+      border-color: #B7AEA8;
+      background: #FBF9F8;
+    }
+
+    .lesson-option.is-selected {
+      border-color: var(--kepty-orange);
+      box-shadow: inset 0 0 0 1px var(--kepty-orange);
+      background: #fff;
+    }
+
+    .lesson-option.is-selected::before {
+      border-color: var(--kepty-orange);
+      background:
+        radial-gradient(circle at center, var(--kepty-orange) 0 4.5px, #fff 5.5px);
     }
 
     .slot:disabled {
@@ -468,6 +533,13 @@
           <div id="timeSlots">
             <div class="status">日付を選ぶと空き枠を表示します</div>
           </div>
+          <div id="lessonFormat" class="lesson-format" hidden>
+            <p class="field-label">レッスン形式</p>
+            <div class="lesson-options" role="radiogroup" aria-label="レッスン形式">
+              <button type="button" class="lesson-option" data-format="guided" role="radio" aria-checked="false">専属講師が主導する<br>授業形式のレッスン</button>
+              <button type="button" class="lesson-option" data-format="freetalk" role="radio" aria-checked="false">専属講師と自由に会話する<br>フリートークレッスン</button>
+            </div>
+          </div>
         </div>
       </section>
     </main>
@@ -496,6 +568,7 @@
     let currentUserId = "";
     let currentUserName = "ゲスト";
     let selectedTime = "";
+    let selectedFormat = "";
     let inLine = false;
     let pendingCancel = null;
     let modalPrimaryAction = null;
@@ -521,10 +594,33 @@
     }
 
     function resetSubmit(label) {
-      const submitBtn = document.getElementById("submitBtn");
       selectedTime = "";
+      selectedFormat = "";
+      const formatBox = document.getElementById("lessonFormat");
+      formatBox.hidden = true;
+      formatBox.querySelectorAll(".lesson-option").forEach((btn) => {
+        btn.classList.remove("is-selected");
+        btn.setAttribute("aria-checked", "false");
+      });
+      const submitBtn = document.getElementById("submitBtn");
       submitBtn.disabled = true;
       submitBtn.textContent = label || "日時を選択してください";
+    }
+
+    function updateSubmit() {
+      const submitBtn = document.getElementById("submitBtn");
+      if (!selectedTime) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "日時を選択してください";
+        return;
+      }
+      if (!selectedFormat) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "レッスン形式を選択してください";
+        return;
+      }
+      submitBtn.disabled = false;
+      submitBtn.textContent = `${selectedTime} で予約する`;
     }
 
     function openModal(options) {
@@ -730,9 +826,18 @@
       document.querySelectorAll(".slot").forEach((btn) => btn.classList.remove("is-selected"));
       clickedBtn.classList.add("is-selected");
       selectedTime = time;
-      const submitBtn = document.getElementById("submitBtn");
-      submitBtn.disabled = false;
-      submitBtn.textContent = `${time} で予約する`;
+      document.getElementById("lessonFormat").hidden = false;
+      updateSubmit();
+    }
+
+    function selectFormat(clickedBtn, format) {
+      selectedFormat = format;
+      document.querySelectorAll(".lesson-option").forEach((btn) => {
+        const on = btn === clickedBtn;
+        btn.classList.toggle("is-selected", on);
+        btn.setAttribute("aria-checked", on ? "true" : "false");
+      });
+      updateSubmit();
     }
 
     async function submitReservation() {
@@ -752,7 +857,8 @@
             userId: currentUserId,
             userName: currentUserName,
             date: document.getElementById("dateSelect").value,
-            time: selectedTime
+            time: selectedTime,
+            lessonType: selectedFormat
           })
         });
         const result = await response.json();
@@ -786,7 +892,7 @@
           primary: "閉じる"
         });
         submitBtn.disabled = false;
-        submitBtn.textContent = `${selectedTime} で予約する`;
+        updateSubmit();
       }
     }
 
@@ -796,6 +902,9 @@
       dateSelect.value = tokyoPlusDays(0);
       dateSelect.addEventListener("change", loadTimeSlots);
       document.getElementById("submitBtn").addEventListener("click", submitReservation);
+      document.querySelectorAll(".lesson-option").forEach((btn) => {
+        btn.addEventListener("click", () => selectFormat(btn, btn.dataset.format));
+      });
       document.getElementById("modalPrimary").addEventListener("click", () => {
         if (modalPrimaryAction) modalPrimaryAction();
         else closeModal();

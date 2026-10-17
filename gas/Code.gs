@@ -41,6 +41,10 @@ var STAFF_LINE_USER_IDS = [
   'Ud0fefb32063023e68af8a6be50201e19',
   'U9de56864ced4187e6270d26ece292bcd'
 ];
+var LESSON_TYPES = {
+  guided: '専属講師が主導する授業形式のレッスン',
+  freetalk: '専属講師と自由に会話するフリートークレッスン'
+};
 var ZOOM_URL = 'https://us05web.zoom.us/j/82772210913?pwd=ZuUZhN09KfLOz2oyZuafZZEH5GdaJI.1';
 var WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -78,8 +82,12 @@ function doPost(e) {
 
     var date = String(data.date || '').trim();
     var time = String(data.time || '').trim();
+    var lessonType = String(data.lessonType || '').trim();
     if (!date || !time) {
       return json_({ success: false, message: '日時を選択してください。' });
+    }
+    if (!LESSON_TYPES[lessonType]) {
+      return json_({ success: false, message: 'レッスン形式を選択してください。' });
     }
 
     var slot = findSlot_(date, time);
@@ -91,7 +99,7 @@ function doPost(e) {
     var end = new Date(start.getTime() + DURATION_MINUTES * 60 * 1000);
     var calendar = getCalendar_();
     var event = calendar.createEvent(bookingEventTitle_(userName), start, end, {
-      description: bookingDescription_(userId, userName),
+      description: bookingDescription_(userId, userName, lessonType),
       location: ZOOM_URL
     });
     event.setColor(CalendarApp.EventColor.ORANGE);
@@ -101,7 +109,7 @@ function doPost(e) {
     appendBookingRaw_(userId, date, time, eveLineMessage_(start));
     var lessonNo = String(lessonNoFromRaw_(userId, date, time));
     setDescFlag_(event, 'LESSON_NO', lessonNo);
-    sendLineToStaff_(staffBookingMessage_(calendarStudentName_(userName), lessonNo, start));
+    sendLineToStaff_(staffBookingMessage_(calendarStudentName_(userName), lessonNo, start, lessonType));
 
     return json_({
       success: true,
@@ -158,7 +166,7 @@ function notifyStaffEve_(event, desc) {
   var start = event.getStartTime();
   var name = calendarStudentName_(valueOf_(desc, 'LINE_DISPLAY_NAME'));
   var lessonNo = lessonNumber_(event);
-  sendLineToStaff_(staffEveMessage_(name, lessonNo, start));
+  sendLineToStaff_(staffEveMessage_(name, lessonNo, start, valueOf_(desc, 'LESSON_TYPE')));
   setDescFlag_(event, 'STAFF_EVE_SENT', 'true');
 }
 
@@ -176,7 +184,7 @@ function sendStaffHourReminders_() {
     if (!valueOf_(desc, 'LINE_USER_ID')) return;
     var name = calendarStudentName_(valueOf_(desc, 'LINE_DISPLAY_NAME'));
     var lessonNo = lessonNumber_(event);
-    sendLineToStaff_(staffHourMessage_(name, lessonNo, start));
+    sendLineToStaff_(staffHourMessage_(name, lessonNo, start, valueOf_(desc, 'LESSON_TYPE')));
     setDescFlag_(event, 'STAFF_HOUR_SENT', 'true');
   });
 }
@@ -665,16 +673,31 @@ function formatStaffTime_(date) {
   return Utilities.formatDate(date, TZ, 'HH:mm');
 }
 
-function staffBookingMessage_(name, lessonNo, start) {
-  return 'New Booking: ' + name + ' booked lesson #' + lessonNo + ' for ' + formatStaffDate_(start) + ' at ' + formatStaffTime_(start) + '.';
+function withLessonType_(text, lessonType) {
+  var label = LESSON_TYPES[lessonType] || '';
+  if (!label) return text;
+  return text + '\n' + label;
 }
 
-function staffEveMessage_(name, lessonNo, start) {
-  return 'Reminder: ' + name + ' has lesson #' + lessonNo + ' tomorrow (' + formatStaffDate_(start) + ') at ' + formatStaffTime_(start) + '.';
+function staffBookingMessage_(name, lessonNo, start, lessonType) {
+  return withLessonType_(
+    'New Booking: ' + name + ' booked lesson #' + lessonNo + ' for ' + formatStaffDate_(start) + ' at ' + formatStaffTime_(start) + '.',
+    lessonType
+  );
 }
 
-function staffHourMessage_(name, lessonNo, start) {
-  return "Reminder: " + name + "'s lesson #" + lessonNo + ' starts in 1 hour (' + formatStaffDate_(start) + ' at ' + formatStaffTime_(start) + ').';
+function staffEveMessage_(name, lessonNo, start, lessonType) {
+  return withLessonType_(
+    'Reminder: ' + name + ' has lesson #' + lessonNo + ' tomorrow (' + formatStaffDate_(start) + ') at ' + formatStaffTime_(start) + '.',
+    lessonType
+  );
+}
+
+function staffHourMessage_(name, lessonNo, start, lessonType) {
+  return withLessonType_(
+    "Reminder: " + name + "'s lesson #" + lessonNo + ' starts in 1 hour (' + formatStaffDate_(start) + ' at ' + formatStaffTime_(start) + ').',
+    lessonType
+  );
 }
 
 function sendLine_(userId, text) {
@@ -764,12 +787,13 @@ function eveLineMessage_(start) {
   );
 }
 
-function bookingDescription_(userId, userName) {
+function bookingDescription_(userId, userName, lessonType) {
   return [
     'Online lesson booking',
     'Student: ' + calendarStudentName_(userName),
     'LINE_USER_ID:' + userId,
     'LINE_DISPLAY_NAME:' + userName,
+    'LESSON_TYPE:' + (lessonType || ''),
     'PREV_DAY_REMINDER_SENT:false',
     'STAFF_EVE_SENT:false',
     'STAFF_HOUR_SENT:false',
