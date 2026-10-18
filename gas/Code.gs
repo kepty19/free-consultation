@@ -35,7 +35,6 @@ var HEADERS = [
   '希望日時3',
   '事前の質問・相談・共有事項'
 ];
-var WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
 
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('index')
@@ -60,7 +59,7 @@ function submitConsultation(data) {
     if (parsed.error) return { success: false, message: parsed.error };
 
     appendRequest_(parsed);
-    notifyLine_(parsed);
+    notifyLine_();
     return {
       success: true,
       message: '希望を送信しました。内容を確認のうえ、ご連絡します。'
@@ -157,21 +156,11 @@ function appendRequest_(parsed) {
   ]);
 }
 
-function notifyLine_(parsed) {
-  var lines = [
-    '無料相談の予約希望が届きました。',
-    '',
-    '記入者: ' + parsed.name,
-    'カテゴリー: ' + parsed.category,
-    '',
-    '第1希望: ' + formatSlotJa_(parsed.slots[0]),
-    '第2希望: ' + formatSlotJa_(parsed.slots[1]),
-    '第3希望: ' + formatSlotJa_(parsed.slots[2])
-  ];
-  lines.push('');
-  lines.push('事前の質問・相談・共有事項:');
-  lines.push(parsed.note || '（なし）');
-  sendLine_(NOTIFY_LINE_USER_ID, lines.join('\n'));
+function notifyLine_() {
+  sendLine_(
+    NOTIFY_LINE_USER_ID,
+    'Kepty English U-18の無料相談の予約希望が送信されました。ご確認ください。'
+  );
 }
 
 function getSheet_() {
@@ -205,16 +194,6 @@ function safeCell_(value) {
 
 function formatSlot_(slot) {
   return slot.date + ' ' + slot.time;
-}
-
-function formatSlotJa_(slot) {
-  var start = slotStart_(slot.date, slot.time);
-  return Utilities.formatDate(start, TZ, 'M月d日') + '（' + weekdayJa_(start) + '）' + slot.time;
-}
-
-function weekdayJa_(date) {
-  var weekday = Number(Utilities.formatDate(date, TZ, 'u'));
-  return WEEKDAY_JA[weekday === 7 ? 0 : weekday];
 }
 
 function isValidYmd_(ymd) {
