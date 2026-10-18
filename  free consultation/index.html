@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>無料相談の予約</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --kepty-orange: #CE4A22;
+      --kepty-orange-deep: #A83818;
+      --kepty-light-orange: #FFEDE8;
+      --kepty-mid-orange: #FAC3B1;
+      --ink: #1A1412;
+      --muted: #6B5E58;
+      --line: #F0E6E1;
+      --paper: #FFFDFB;
+      --canvas: #F7F1EE;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--canvas);
+      color: var(--ink);
+      font-family: Inter, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body { display: flex; justify-content: center; }
+
+    .app {
+      width: 100%;
+      max-width: 430px;
+      min-height: 100vh;
+      background: var(--paper);
+      box-shadow: 0 18px 50px rgba(42, 11, 2, 0.08);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .hero {
+      background: linear-gradient(160deg, #CE4A22 0%, #B33D1B 55%, #8F2E12 100%);
+      color: #fff;
+      padding: 24px 20px 22px;
+    }
+
+    .brand { margin-bottom: 14px; }
+
+    .brand-name {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      opacity: 0.95;
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: 26px;
+      line-height: 1.2;
+      letter-spacing: -0.03em;
+      font-weight: 800;
+    }
+
+    .hero-lead {
+      margin: 8px 0 0;
+      font-size: 14px;
+      line-height: 1.6;
+      opacity: 0.92;
+    }
+
+    .content {
+      padding: 16px 16px 24px;
+      flex: 1;
+    }
+
+    .panel {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px;
+      overflow: hidden;
+    }
+
+    .panel + .panel,
+    .board {
+      margin-top: 14px;
+    }
+
+    .board {
+      border: 1px solid var(--kepty-mid-orange);
+      border-radius: 20px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .board-block { padding: 16px; }
+
+    .board-block.is-now {
+      background: linear-gradient(180deg, var(--kepty-light-orange) 0%, #fff 78%);
+    }
+
+    .board-block.is-later {
+      border-top: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .board-block h2,
+    .panel h2,
+    .field-label {
+      display: block;
+      margin: 0 0 10px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      color: var(--kepty-orange);
+    }
+
+    .board-block h2,
+    .panel h2 {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+    }
+
+    .board-mark {
+      width: 8px;
+      height: 8px;
+      min-width: 8px;
+      border-radius: 50%;
+      background: var(--kepty-orange);
+    }
+
+    .board-block.is-later .board-mark {
+      background: transparent;
+      border: 2px solid var(--kepty-orange);
+    }
+
+    .field-label { margin: 14px 0 8px; }
+
+    .board-block h2 + .hint,
+    .panel h2 + .hint { margin-top: -2px; }
+
+    .hint {
+      margin: 0 0 12px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--muted);
+    }
+
+    .badge {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      vertical-align: 1px;
+    }
+
+    .badge.is-required {
+      background: var(--kepty-orange);
+      color: #fff;
+    }
+
+    .badge.is-optional {
+      background: #F0E6E1;
+      color: var(--muted);
+    }
+
+    .control {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      padding: 14px 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+      font: inherit;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink);
+      box-sizing: border-box;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
+    textarea.control {
+      min-height: 120px;
+      font-weight: 600;
+      line-height: 1.6;
+      resize: vertical;
+    }
+
+    .control:focus {
+      outline: 2px solid var(--kepty-mid-orange);
+      border-color: var(--kepty-orange);
+    }
+
+    .control::placeholder {
+      color: #B7AEA8;
+      font-weight: 600;
+    }
+
+    #timeSlots {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .slot {
+      padding: 11px 4px;
+      border-radius: 8px;
+      border: 1px solid #D5CDC8;
+      background: #fff;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+    }
+
+    .slot:hover {
+      border-color: #B7AEA8;
+      background: #FBF9F8;
+    }
+
+    .slot.is-selected {
+      background: var(--kepty-orange);
+      border-color: var(--kepty-orange);
+      color: #fff;
+    }
+
+    .slot:disabled {
+      background: #f4eeeb;
+      border-color: #eadfd9;
+      color: #c4b7b1;
+      text-decoration: line-through;
+      cursor: not-allowed;
+    }
+
+    .options {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .option {
+      position: relative;
+      width: 100%;
+      min-height: 52px;
+      padding: 14px 14px 14px 42px;
+      border-radius: 10px;
+      border: 1px solid #D5CDC8;
+      background: #fff;
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.45;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .option::before {
+      content: "";
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      width: 16px;
+      height: 16px;
+      margin-top: -8px;
+      border-radius: 50%;
+      border: 1.5px solid #C3BAB5;
+      background: #fff;
+      box-sizing: border-box;
+    }
+
+    .option:hover {
+      border-color: #B7AEA8;
+      background: #FBF9F8;
+    }
+
+    .option.is-selected {
+      border-color: var(--kepty-orange);
+      box-shadow: inset 0 0 0 1px var(--kepty-orange);
+      background: #fff;
+    }
+
+    .option.is-selected::before {
+      border-color: var(--kepty-orange);
+      background: radial-gradient(circle at center, var(--kepty-orange) 0 4.5px, #fff 5.5px);
+    }
+
+    .preference-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .preference {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px;
+      border: 1px dashed #E4D8D2;
+      border-radius: 14px;
+      background: #fff;
+    }
+
+    .preference.is-filled {
+      border-style: solid;
+      border-color: var(--kepty-mid-orange);
+      background: var(--kepty-light-orange);
+    }
+
+    .preference-rank {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      color: var(--kepty-orange);
+    }
+
+    .preference-when {
+      margin: 2px 0 0;
+      font-size: 15px;
+      font-weight: 800;
+      line-height: 1.4;
+    }
+
+    .preference:not(.is-filled) .preference-when {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .remove-btn {
+      flex-shrink: 0;
+      border: 1.5px solid var(--kepty-orange);
+      border-radius: 12px;
+      padding: 8px 12px;
+      background: #fff;
+      color: var(--kepty-orange-deep);
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .status {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 18px 8px;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .status.is-error { color: #b42318; }
+
+    .footer {
+      position: sticky;
+      bottom: 0;
+      padding: 12px 16px 20px;
+      background: linear-gradient(to top, var(--paper) 70%, transparent);
+    }
+
+    #submitBtn {
+      width: 100%;
+      border: 0;
+      border-radius: 16px;
+      padding: 16px 12px;
+      background: var(--kepty-orange);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    #submitBtn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(42, 11, 2, 0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 2;
+    }
+
+    .modal.is-open { display: flex; }
+
+    .modal-card {
+      width: 100%;
+      max-width: 360px;
+      background: #fff;
+      border-radius: 22px;
+      padding: 24px 20px;
+      text-align: center;
+    }
+
+    .modal-icon {
+      width: 52px;
+      height: 52px;
+      margin: 0 auto 12px;
+      border-radius: 50%;
+      background: var(--kepty-light-orange);
+      color: var(--kepty-orange);
+      display: grid;
+      place-items: center;
+      font-size: 24px;
+      font-weight: 800;
+    }
+
+    .modal-card h3 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      line-height: 1.45;
+    }
+
+    .modal-card p {
+      margin: 0 0 18px;
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--muted);
+      white-space: pre-line;
+    }
+
+    .modal-card p:empty { display: none; }
+
+    .modal-icon[hidden] { display: none; }
+
+    .modal-card button {
+      width: 100%;
+      border: 0;
+      border-radius: 14px;
+      padding: 13px;
+      background: var(--ink);
+      color: #fff;
+      font-weight: 800;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="hero">
+      <div class="brand">
+        <div class="brand-name">保護者の方向け</div>
+      </div>
+      <h1>無料相談の予約</h1>
+      <p class="hero-lead">希望の日時を3つお送りください。内容を確認のうえ、ご連絡します。</p>
+    </header>
+
+    <form id="reservationForm" class="content" novalidate>
+      <section class="panel" aria-labelledby="nameHeading">
+        <h2 id="nameHeading"><span class="board-mark" aria-hidden="true"></span>記入者の氏名<span class="badge is-required">必須</span></h2>
+        <input class="control" id="applicantName" name="name" type="text" maxlength="80" autocomplete="name" placeholder="山田 花子" required>
+      </section>
+
+      <section class="panel" aria-labelledby="categoryHeading">
+        <h2 id="categoryHeading"><span class="board-mark" aria-hidden="true"></span>選手の所属カテゴリー<span class="badge is-required">必須</span></h2>
+        <div class="options" role="radiogroup" aria-label="選手の所属カテゴリー">
+          <button type="button" class="option" data-category="U-18" role="radio" aria-checked="false">U-18</button>
+          <button type="button" class="option" data-category="U-15" role="radio" aria-checked="false">U-15</button>
+          <button type="button" class="option" data-category="U-12" role="radio" aria-checked="false">U-12</button>
+          <button type="button" class="option" data-category="U-10" role="radio" aria-checked="false">U-10</button>
+          <button type="button" class="option" data-category="その他" role="radio" aria-checked="false">その他</button>
+        </div>
+      </section>
+
+      <section class="board" aria-label="無料相談の実施希望日時">
+        <div class="board-block is-now">
+          <h2><span class="board-mark" aria-hidden="true"></span>実施希望日時<span class="badge is-required">必須</span></h2>
+          <p class="hint">第1希望から第3希望まで、3つ選んでください。日付を変えて別の日も選べます。</p>
+          <div id="preferenceList" class="preference-list" aria-live="polite"></div>
+        </div>
+        <div class="board-block is-later">
+          <label class="field-label" for="dateSelect">日付</label>
+          <input class="control" type="date" id="dateSelect" required>
+          <p class="field-label">開始時刻</p>
+          <div id="timeSlots"></div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="noteHeading">
+        <h2 id="noteHeading"><span class="board-mark" aria-hidden="true"></span>事前の質問・相談・共有事項<span class="badge is-optional">任意</span></h2>
+        <textarea class="control" id="note" name="note" maxlength="2000" placeholder="事前に共有したいことがあればご記入ください"></textarea>
+      </section>
+    </form>
+
+    <div class="footer">
+      <button id="submitBtn" type="submit" form="reservationForm" disabled>氏名を入力してください</button>
+    </div>
+  </div>
+
+  <div class="modal" id="modal">
+    <div class="modal-card">
+      <div class="modal-icon" id="modalIcon">✓</div>
+      <h3 id="modalTitle">希望を送信しました。</h3>
+      <p id="modalMessage"></p>
+      <button type="button" id="modalPrimary">閉じる</button>
+    </div>
+  </div>
+
+  <script>
+    // ウェブアプリをデプロイしたあと、発行された URL をここに入れる。
+    const GAS_URL = "";
+    const PREFERENCE_COUNT = 3;
+    const HORIZON_DAYS = 90;
+    const TIME_SLOTS = buildTimeSlots();
+    const RANKS = ["第1希望", "第2希望", "第3希望"];
+
+    let category = "";
+    let preferences = [];
+    let submitting = false;
+    let modalPrimaryAction = null;
+
+    function buildTimeSlots() {
+      const slots = [];
+      for (let minutes = 10 * 60; minutes <= 20 * 60; minutes += 30) {
+        const hour = String(Math.floor(minutes / 60)).padStart(2, "0");
+        const minute = String(minutes % 60).padStart(2, "0");
+        slots.push(`${hour}:${minute}`);
+      }
+      return slots;
+    }
+
+    function tokyoDate(offsetDays) {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).formatToParts(new Date());
+      const year = Number(parts.find((part) => part.type === "year").value);
+      const month = Number(parts.find((part) => part.type === "month").value);
+      const day = Number(parts.find((part) => part.type === "day").value);
+      return new Date(Date.UTC(year, month - 1, day + (offsetDays || 0))).toISOString().slice(0, 10);
+    }
+
+    function formatWhen(date, time) {
+      const weeks = ["日", "月", "火", "水", "木", "金", "土"];
+      const parsed = new Date(`${date}T12:00:00+09:00`);
+      const month = Number(date.slice(5, 7));
+      const day = Number(date.slice(8, 10));
+      return `${month}月${day}日（${weeks[parsed.getUTCDay()]}）${time}`;
+    }
+
+    function isPastSlot(date, time) {
+      return new Date(`${date}T${time}:00+09:00`).getTime() <= Date.now();
+    }
+
+    function preferenceIndex(date, time) {
+      return preferences.findIndex((slot) => slot.date === date && slot.time === time);
+    }
+
+    function selectedName() {
+      return document.getElementById("applicantName").value.trim();
+    }
+
+    function updateSubmit() {
+      const submitBtn = document.getElementById("submitBtn");
+      if (submitting) return;
+      if (!selectedName()) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "氏名を入力してください";
+        return;
+      }
+      if (!category) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "カテゴリーを選択してください";
+        return;
+      }
+      if (preferences.length < PREFERENCE_COUNT) {
+        const remaining = PREFERENCE_COUNT - preferences.length;
+        submitBtn.disabled = true;
+        submitBtn.textContent = `希望日時をあと${remaining}つ選択してください`;
+        return;
+      }
+      submitBtn.disabled = false;
+      submitBtn.textContent = "希望を送信する";
+    }
+
+    function renderPreferences() {
+      const list = document.getElementById("preferenceList");
+      list.innerHTML = "";
+      RANKS.forEach((rank, index) => {
+        const slot = preferences[index];
+        const row = document.createElement("div");
+        row.className = slot ? "preference is-filled" : "preference";
+        const info = document.createElement("div");
+        const label = document.createElement("p");
+        label.className = "preference-rank";
+        label.textContent = rank;
+        const when = document.createElement("p");
+        when.className = "preference-when";
+        when.textContent = slot ? formatWhen(slot.date, slot.time) : "未選択";
+        info.appendChild(label);
+        info.appendChild(when);
+        row.appendChild(info);
+        if (slot) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "remove-btn";
+          button.textContent = "外す";
+          button.addEventListener("click", () => removePreference(index));
+          row.appendChild(button);
+        }
+        list.appendChild(row);
+      });
+    }
+
+    function renderTimeSlots() {
+      const box = document.getElementById("timeSlots");
+      const date = document.getElementById("dateSelect").value;
+      box.innerHTML = "";
+      if (!date) {
+        box.innerHTML = '<div class="status">日付を選んでください</div>';
+        return;
+      }
+
+      const available = TIME_SLOTS.filter((time) => !isPastSlot(date, time));
+      if (!available.length) {
+        box.innerHTML = '<div class="status">この日に選べる時刻はありません</div>';
+        return;
+      }
+
+      available.forEach((time) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "slot";
+        button.textContent = time;
+        if (preferenceIndex(date, time) !== -1) button.classList.add("is-selected");
+        button.addEventListener("click", () => toggleTime(date, time));
+        box.appendChild(button);
+      });
+    }
+
+    function toggleTime(date, time) {
+      const index = preferenceIndex(date, time);
+      if (index !== -1) {
+        preferences.splice(index, 1);
+      } else if (preferences.length >= PREFERENCE_COUNT) {
+        openModal({
+          icon: "!",
+          title: "希望日時は3つまでです。",
+          message: "選び直す場合は、上の希望を外してください。",
+          primary: "閉じる"
+        });
+        return;
+      } else {
+        preferences.push({ date, time });
+      }
+      renderPreferences();
+      renderTimeSlots();
+      updateSubmit();
+    }
+
+    function removePreference(index) {
+      preferences.splice(index, 1);
+      renderPreferences();
+      renderTimeSlots();
+      updateSubmit();
+    }
+
+    function selectCategory(button) {
+      category = button.dataset.category;
+      document.querySelectorAll(".option").forEach((item) => {
+        const on = item === button;
+        item.classList.toggle("is-selected", on);
+        item.setAttribute("aria-checked", on ? "true" : "false");
+      });
+      updateSubmit();
+    }
+
+    function openModal(options) {
+      const icon = document.getElementById("modalIcon");
+      icon.hidden = Boolean(options.hideIcon);
+      icon.textContent = options.icon || "✓";
+      document.getElementById("modalTitle").textContent = options.title;
+      document.getElementById("modalMessage").textContent = options.message || "";
+      const primary = document.getElementById("modalPrimary");
+      primary.disabled = false;
+      primary.textContent = options.primary || "閉じる";
+      modalPrimaryAction = options.onPrimary || closeModal;
+      document.getElementById("modal").classList.add("is-open");
+    }
+
+    function closeModal() {
+      document.getElementById("modal").classList.remove("is-open");
+      modalPrimaryAction = null;
+    }
+
+    function resetForm() {
+      document.getElementById("reservationForm").reset();
+      category = "";
+      preferences = [];
+      document.querySelectorAll(".option").forEach((item) => {
+        item.classList.remove("is-selected");
+        item.setAttribute("aria-checked", "false");
+      });
+      const dateSelect = document.getElementById("dateSelect");
+      dateSelect.min = tokyoDate(0);
+      dateSelect.max = tokyoDate(HORIZON_DAYS);
+      dateSelect.value = tokyoDate(0);
+      renderPreferences();
+      renderTimeSlots();
+      updateSubmit();
+    }
+
+    async function submitReservation(event) {
+      event.preventDefault();
+      if (submitting || document.getElementById("submitBtn").disabled) return;
+      if (!GAS_URL) {
+        openModal({
+          icon: "!",
+          title: "送信先が未設定です。",
+          message: "ウェブアプリのURLを設定してから、もう一度お試しください。",
+          primary: "閉じる"
+        });
+        return;
+      }
+
+      const submitBtn = document.getElementById("submitBtn");
+      submitting = true;
+      submitBtn.disabled = true;
+      submitBtn.textContent = "送信中...";
+
+      try {
+        const response = await fetch(GAS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({
+            name: selectedName(),
+            category,
+            preferences,
+            note: document.getElementById("note").value.trim()
+          })
+        });
+        const result = await response.json();
+        submitting = false;
+        if (result.success) {
+          resetForm();
+          openModal({
+            hideIcon: true,
+            title: "希望を送信しました。",
+            message: "内容を確認のうえ、ご連絡します。",
+            primary: "閉じる"
+          });
+        } else {
+          openModal({
+            icon: "!",
+            title: "送信できませんでした。",
+            message: result.message || "時間をおいて、もう一度お試しください。",
+            primary: "閉じる"
+          });
+          updateSubmit();
+        }
+      } catch (error) {
+        submitting = false;
+        openModal({
+          icon: "!",
+          title: "送信できませんでした。",
+          message: "時間をおいて、もう一度お試しください。",
+          primary: "閉じる"
+        });
+        updateSubmit();
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const dateSelect = document.getElementById("dateSelect");
+      dateSelect.min = tokyoDate(0);
+      dateSelect.max = tokyoDate(HORIZON_DAYS);
+      dateSelect.value = tokyoDate(0);
+      dateSelect.addEventListener("change", renderTimeSlots);
+      document.getElementById("applicantName").addEventListener("input", updateSubmit);
+      document.querySelectorAll(".option").forEach((button) => {
+        button.addEventListener("click", () => selectCategory(button));
+      });
+      document.getElementById("reservationForm").addEventListener("submit", submitReservation);
+      document.getElementById("modalPrimary").addEventListener("click", () => {
+        if (modalPrimaryAction) modalPrimaryAction();
+        else closeModal();
+      });
+      renderPreferences();
+      renderTimeSlots();
+      updateSubmit();
+    });
+  </script>
+</body>
+</html>
