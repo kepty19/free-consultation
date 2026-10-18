@@ -59,7 +59,13 @@ function submitConsultation(data) {
     if (parsed.error) return { success: false, message: parsed.error };
 
     appendRequest_(parsed);
-    notifyLine_();
+    var line = notifyLine_();
+    if (!line.ok) {
+      return {
+        success: true,
+        message: '希望は保存しました。LINE通知は送れませんでした。\n' + line.message
+      };
+    }
     return {
       success: true,
       message: '希望を送信しました。内容を確認のうえ、ご連絡します。'
@@ -157,7 +163,7 @@ function appendRequest_(parsed) {
 }
 
 function notifyLine_() {
-  sendLine_(
+  return sendLine_(
     NOTIFY_LINE_USER_ID,
     'Kepty English U-18の無料相談の予約希望が送信されました。ご確認ください。'
   );
@@ -173,8 +179,11 @@ function getSheet_() {
 
 function sendLine_(userId, text) {
   var token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
-  if (!token || !userId) return;
-  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+  token = token ? String(token).trim() : '';
+  if (!token || !userId) {
+    return { ok: false, message: 'LINEのトークンが読み取れていません。スクリプトプロパティの名前を確認してください。' };
+  }
+  var response = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
     method: 'post',
     contentType: 'application/json',
     headers: { Authorization: 'Bearer ' + token },
@@ -184,6 +193,9 @@ function sendLine_(userId, text) {
     }),
     muteHttpExceptions: true
   });
+  var code = response.getResponseCode();
+  if (code >= 200 && code < 300) return { ok: true, message: '' };
+  return { ok: false, message: 'LINEからエラーが返りました（' + code + '）。通知先のIDが、この公式LINEのIDか確認してください。' };
 }
 
 function safeCell_(value) {
