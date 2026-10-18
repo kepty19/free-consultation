@@ -39,7 +39,7 @@ var WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
 
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('index')
-    .setTitle('無料相談の予約')
+    .setTitle('無料相談予約')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
