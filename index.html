@@ -709,63 +709,68 @@
       updateSubmit();
     }
 
-    async function submitReservation(event) {
-      event.preventDefault();
-      if (submitting || document.getElementById("submitBtn").disabled) return;
-      if (!GAS_URL) {
+    function reservationPayload() {
+      return {
+        name: selectedName(),
+        category,
+        preferences,
+        note: document.getElementById("note").value.trim()
+      };
+    }
+
+    function finishSubmit(result) {
+      submitting = false;
+      if (result && result.success) {
+        resetForm();
         openModal({
-          icon: "!",
-          title: "送信先が未設定です。",
-          message: "ウェブアプリのURLを設定してから、もう一度お試しください。",
+          hideIcon: true,
+          title: "希望を送信しました。",
+          message: "内容を確認のうえ、ご連絡します。",
           primary: "閉じる"
         });
         return;
       }
+      openModal({
+        icon: "!",
+        title: "送信できませんでした。",
+        message: (result && result.message) || "時間をおいて、もう一度お試しください。",
+        primary: "閉じる"
+      });
+      updateSubmit();
+    }
+
+    async function submitReservation(event) {
+      event.preventDefault();
+      if (submitting || document.getElementById("submitBtn").disabled) return;
 
       const submitBtn = document.getElementById("submitBtn");
       submitting = true;
       submitBtn.disabled = true;
       submitBtn.textContent = "送信中...";
+      const payload = reservationPayload();
+
+      if (window.google && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(finishSubmit)
+          .withFailureHandler(() => finishSubmit(null))
+          .submitConsultation(payload);
+        return;
+      }
+
+      if (!GAS_URL) {
+        finishSubmit({ success: false, message: "ウェブアプリのURLを設定してから、もう一度お試しください。" });
+        return;
+      }
 
       try {
         const response = await fetch(GAS_URL, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({
-            name: selectedName(),
-            category,
-            preferences,
-            note: document.getElementById("note").value.trim()
-          })
+          body: JSON.stringify(payload)
         });
-        const result = await response.json();
-        submitting = false;
-        if (result.success) {
-          resetForm();
-          openModal({
-            hideIcon: true,
-            title: "希望を送信しました。",
-            message: "内容を確認のうえ、ご連絡します。",
-            primary: "閉じる"
-          });
-        } else {
-          openModal({
-            icon: "!",
-            title: "送信できませんでした。",
-            message: result.message || "時間をおいて、もう一度お試しください。",
-            primary: "閉じる"
-          });
-          updateSubmit();
-        }
+        finishSubmit(await response.json());
       } catch (error) {
-        submitting = false;
-        openModal({
-          icon: "!",
-          title: "送信できませんでした。",
-          message: "時間をおいて、もう一度お試しください。",
-          primary: "閉じる"
-        });
-        updateSubmit();
+        finishSubmit(null);
       }
     }
 

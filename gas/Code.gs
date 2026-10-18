@@ -13,7 +13,9 @@
  * 3. デプロイ → 新しいデプロイ → ウェブアプリ
  *    - 次のユーザーとして実行: 自分
  *    - アクセスできるユーザー: 全員
- * 4. 発行されたウェブアプリ URL を index.html の GAS_URL に入れる
+ * 4. HTML ファイルを追加し、名前を index にする。中身はリポジトリの index.html
+ * 5. デプロイを管理 → 鉛筆 → バージョン「新バージョン」で更新する
+ *    ウェブアプリの URL を開くと予約画面になる
  *
  * シートが空のときだけ、1行目に見出しを書く。
  * A 送信日時 / B 記入者氏名 / C 所属カテゴリー / D 希望日時1 / E 希望日時2 / F 希望日時3 / G 事前の質問・相談・共有事項
@@ -36,26 +38,35 @@ var HEADERS = [
 var WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
 
 function doGet() {
-  return json_({ ok: true, service: 'free-consultation' });
+  return HtmlService.createHtmlOutputFromFile('index')
+    .setTitle('無料相談の予約')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 function doPost(e) {
+  try {
+    var data = JSON.parse((e.postData && e.postData.contents) || '{}');
+    return json_(submitConsultation(data));
+  } catch (err) {
+    return json_({ success: false, message: '送信できませんでした。時間をおいて、もう一度お試しください。' });
+  }
+}
+
+function submitConsultation(data) {
   var lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
-    var data = JSON.parse((e.postData && e.postData.contents) || '{}');
-    var parsed = parseRequest_(data);
-    if (parsed.error) return json_({ success: false, message: parsed.error });
+    var parsed = parseRequest_(data || {});
+    if (parsed.error) return { success: false, message: parsed.error };
 
     appendRequest_(parsed);
     notifyLine_(parsed);
-
-    return json_({
+    return {
       success: true,
       message: '希望を送信しました。内容を確認のうえ、ご連絡します。'
-    });
+    };
   } catch (err) {
-    return json_({ success: false, message: '送信できませんでした。時間をおいて、もう一度お試しください。' });
+    return { success: false, message: '送信できませんでした。時間をおいて、もう一度お試しください。' };
   } finally {
     lock.releaseLock();
   }
