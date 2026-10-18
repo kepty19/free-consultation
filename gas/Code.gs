@@ -23,7 +23,7 @@
 
 var TZ = 'Asia/Tokyo';
 var SPREADSHEET_ID = '1lD7nEz-AuRXTzSql2fH6FIGyVJxt2JcIXp-kRFc7-9c';
-var NOTIFY_LINE_USER_ID = 'U9de56864ced4187e6270d26ece292bcd';
+var NOTIFY_LINE_USER_ID = 'U29caba1286e1cd99e35c796af844c042';
 var CATEGORIES = ['U-18', 'U-15', 'U-12', 'U-10', 'その他'];
 var HORIZON_DAYS = 90;
 var HEADERS = [
