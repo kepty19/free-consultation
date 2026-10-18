@@ -518,7 +518,7 @@
 
     function buildTimeSlots() {
       const slots = [];
-      for (let minutes = 10 * 60; minutes <= 20 * 60; minutes += 30) {
+      for (let minutes = 8 * 60; minutes <= 23 * 60; minutes += 30) {
         const hour = String(Math.floor(minutes / 60)).padStart(2, "0");
         const minute = String(minutes % 60).padStart(2, "0");
         slots.push(`${hour}:${minute}`);

@@ -132,7 +132,7 @@ function invalidSlotReason_(date, time, seen) {
 
 function allowedTimes_() {
   var times = [];
-  for (var minutes = 10 * 60; minutes <= 20 * 60; minutes += 30) {
+  for (var minutes = 8 * 60; minutes <= 23 * 60; minutes += 30) {
     times.push(pad2_(Math.floor(minutes / 60)) + ':' + pad2_(minutes % 60));
   }
   return times;
