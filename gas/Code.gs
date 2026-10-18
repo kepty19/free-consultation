@@ -36,7 +36,10 @@ var HEADERS = [
   '事前の質問・相談・共有事項'
 ];
 
-function doGet() {
+function doGet(e) {
+  if (e && e.parameter && e.parameter.action === 'linecheck') {
+    return json_(checkLine_());
+  }
   return HtmlService.createHtmlOutputFromFile('index')
     .setTitle('無料相談予約')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -175,6 +178,31 @@ function getSheet_() {
   var sheet = spreadsheet.getSheetById(0) || spreadsheet.getSheets()[0];
   if (!sheet) throw new Error('シートが見つかりません');
   return sheet;
+}
+
+function checkLine_() {
+  var token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
+  token = token ? String(token).trim() : '';
+  if (!token) {
+    return { ok: false, message: 'トークンが読み取れていません。' };
+  }
+  var bot = UrlFetchApp.fetch('https://api.line.me/v2/bot/info', {
+    method: 'get',
+    headers: { Authorization: 'Bearer ' + token },
+    muteHttpExceptions: true
+  });
+  var profile = UrlFetchApp.fetch('https://api.line.me/v2/bot/profile/' + NOTIFY_LINE_USER_ID, {
+    method: 'get',
+    headers: { Authorization: 'Bearer ' + token },
+    muteHttpExceptions: true
+  });
+  return {
+    ok: profile.getResponseCode() === 200,
+    botStatus: bot.getResponseCode(),
+    bot: bot.getContentText(),
+    profileStatus: profile.getResponseCode(),
+    profile: profile.getContentText()
+  };
 }
 
 function sendLine_(userId, text) {
