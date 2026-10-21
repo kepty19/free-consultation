@@ -19,9 +19,10 @@
  *
  * 友だち追加の記録は、先頭シートの右隣の「友だち」シートへ追記する。
  * LINE Developers の Messaging API で、Webhook URL にこのウェブアプリの URL を設定する。
- * 翌日・翌々日の送信は、エディタで installNurturingTrigger を1回実行すると、毎日10時に動く。
- * 3通の文面は下の NURTURE_IMMEDIATE / NURTURE_NEXT_DAY / NURTURE_DAY_AFTER。
- * A 送信日時 / B 記入者氏名 / C 所属カテゴリー / D 希望日時1 / E 希望日時2 / F 希望日時3 / G 事前の質問・相談・共有事項
+ * 配信文面は「配信コンテンツ」シート。A 経過日数 / B 配信時刻 / F テキスト / G・H カード。
+ * 送信済みは「配信ログ」シートで管理する。
+ * エディタで installNurturingTrigger を1回実行すると、30分おきに当日分を送る。
+ * 予約シート: A 送信日時 / B 記入者氏名 / C 所属カテゴリー / D 希望日時1 / E 希望日時2 / F 希望日時3 / G 事前の質問・相談・共有事項
  */
 
 var TZ = 'Asia/Tokyo';
@@ -47,9 +48,9 @@ var FRIEND_HEADERS = [
   '翌日_送信日時',
   '翌々日_送信日時'
 ];
-var NURTURE_IMMEDIATE = '友だち追加ありがとうございます。';
-var NURTURE_NEXT_DAY = '昨日は友だち追加ありがとうございました。';
-var NURTURE_DAY_AFTER = 'ご登録から2日が経ちました。';
+var CONTENT_SHEET_NAME = '配信コンテンツ';
+var LOG_SHEET_NAME = '配信ログ';
+var LOG_HEADERS = ['LINEユーザーID', '友だち追加日', '経過日数', '送信日時'];
 
 function doGet(e) {
   if (e && e.parameter && e.parameter.action === 'linecheck') {
@@ -214,12 +215,14 @@ function recordFollow_(userId, timestamp, replyToken) {
     } else {
       sheet.getRange(row, 2, 1, 5).setValues([[whenText, '友だち', '', '', '']]);
     }
-    if (sheet.getRange(row, 4).getValue()) return;
-    var sent = replyToken ? replyLine_(replyToken, NURTURE_IMMEDIATE) : { ok: false };
-    if (!sent.ok) sent = sendLine_(userId, NURTURE_IMMEDIATE);
-    if (sent.ok) {
-      sheet.getRange(row, 4).setValue(Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss'));
-    }
+    var addedYmd = sheetDateToYmd_(sheet.getRange(row, 2).getValue());
+    sendDueDeliveries_({
+      userId: userId,
+      addedYmd: addedYmd,
+      days: 0,
+      replyToken: replyToken,
+      immediateOnly: true
+    });
   } finally {
     lock.releaseLock();
   }
@@ -233,42 +236,276 @@ function markUnfollow_(userId) {
 }
 
 function sendNurturingMessages() {
-  var sheet = getFriendsSheet_();
-  var values = sheet.getDataRange().getValues();
-  var today = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
-  var sentAt = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss');
-  for (var i = 1; i < values.length; i++) {
-    if (String(values[i][2] || '').trim() !== '友だち') continue;
-    var userId = String(values[i][0] || '').trim();
-    var added = sheetDateToYmd_(values[i][1]);
-    if (!userId || !added) continue;
-    var days = daysBetween_(added, today);
-    if (!values[i][3]) {
-      if (sendLine_(userId, NURTURE_IMMEDIATE).ok) sheet.getRange(i + 1, 4).setValue(sentAt);
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return;
+  try {
+    var sheet = getFriendsSheet_();
+    var values = sheet.getDataRange().getValues();
+    var today = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
+    var ctx = loadDeliveryContext_();
+    for (var i = 1; i < values.length; i++) {
+      if (String(values[i][2] || '').trim() !== '友だち') continue;
+      var userId = String(values[i][0] || '').trim();
+      var addedYmd = sheetDateToYmd_(values[i][1]);
+      if (!userId || !addedYmd) continue;
+      sendDueDeliveries_({
+        userId: userId,
+        addedYmd: addedYmd,
+        days: daysBetween_(addedYmd, today),
+        replyToken: '',
+        immediateOnly: false
+      }, ctx);
     }
-    if (days === 1 && !values[i][4]) {
-      if (sendLine_(userId, NURTURE_NEXT_DAY).ok) sheet.getRange(i + 1, 5).setValue(sentAt);
-    }
-    if (days === 2 && !values[i][5]) {
-      if (sendLine_(userId, NURTURE_DAY_AFTER).ok) sheet.getRange(i + 1, 6).setValue(sentAt);
-    }
+  } finally {
+    lock.releaseLock();
   }
 }
 
 function installNurturingTrigger() {
   getFriendsSheet_();
+  getDeliveryLogSheet_();
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
     if (trigger.getHandlerFunction() === 'sendNurturingMessages') {
       ScriptApp.deleteTrigger(trigger);
     }
   });
-  ScriptApp.newTrigger('sendNurturingMessages').timeBased().atHour(10).everyDays(1).create();
+  ScriptApp.newTrigger('sendNurturingMessages').timeBased().everyMinutes(30).create();
+}
+
+function sendDueDeliveries_(opts, ctx) {
+  var userId = String(opts.userId || '').trim();
+  var addedYmd = String(opts.addedYmd || '').trim();
+  var days = Number(opts.days);
+  if (!userId || !addedYmd || isNaN(days) || days < 0) return;
+  ctx = ctx || loadDeliveryContext_();
+  var bundle = buildDayBundle_(ctx.contents, days);
+  if (!bundle || !bundle.messages.length) return;
+  if (opts.immediateOnly && !isImmediateTime_(bundle.timeRaw)) return;
+  if (!opts.immediateOnly && !isDueTime_(bundle.timeRaw)) return;
+  var key = sentKey_(userId, addedYmd, days);
+  if (ctx.sent[key]) return;
+  var sent = deliverMessages_(userId, bundle.messages, opts.replyToken || '');
+  if (!sent.ok) return;
+  appendDeliveryLog_(userId, addedYmd, days);
+  ctx.sent[key] = true;
+}
+
+function loadDeliveryContext_() {
+  return {
+    contents: loadDeliveryContents_(),
+    sent: loadSentKeys_()
+  };
+}
+
+function loadDeliveryContents_() {
+  var sheet = openSpreadsheet_().getSheetByName(CONTENT_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var values = sheet.getDataRange().getValues();
+  var list = [];
+  for (var i = 1; i < values.length; i++) {
+    if (values[i][0] === '' || values[i][0] === null) continue;
+    var day = Number(values[i][0]);
+    if (isNaN(day)) continue;
+    var text = values[i][5] === null || values[i][5] === undefined ? '' : String(values[i][5]);
+    var cards = [values[i][6], values[i][7]];
+    var hasCard = cards.some(function (card) { return String(card || '').trim(); });
+    if (text === '' && !hasCard) continue;
+    list.push({
+      day: day,
+      timeRaw: values[i][1],
+      text: text,
+      cards: cards
+    });
+  }
+  return list;
+}
+
+function buildDayBundle_(contents, days) {
+  var messages = [];
+  var timeRaw = null;
+  var found = false;
+  contents.forEach(function (item) {
+    if (item.day !== days) return;
+    if (!found) {
+      timeRaw = item.timeRaw;
+      found = true;
+    }
+    if (item.text !== '') messages.push({ type: 'text', text: item.text });
+    item.cards.forEach(function (raw) {
+      var card = parseCardMessage_(raw);
+      if (card) messages.push(card);
+    });
+  });
+  if (!found) return null;
+  return { timeRaw: timeRaw, messages: messages };
+}
+
+function parseCardMessage_(raw) {
+  var source = String(raw || '').trim();
+  if (!source) return null;
+  var title = matchCardField_(source, 'ラベル/タイトル') || matchCardField_(source, 'タイトル');
+  var label = matchCardField_(source, 'ボタン名');
+  var uri = extractUrl_(source);
+  title = cleanCardText_(title);
+  label = cleanCardText_(label) || '開く';
+  if (!title || !uri) return null;
+  if (title.length > 160) title = title.slice(0, 160);
+  if (label.length > 20) label = label.slice(0, 20);
+  return {
+    type: 'template',
+    altText: title.slice(0, 400),
+    template: {
+      type: 'buttons',
+      text: title,
+      actions: [{ type: 'uri', label: label, uri: uri }]
+    }
+  };
+}
+
+function matchCardField_(text, name) {
+  var pattern = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  var matched = text.match(new RegExp(pattern + '\\s*[:：]\\s*([^\\n\\r]+)'));
+  return matched ? matched[1].trim() : '';
+}
+
+function cleanCardText_(value) {
+  return String(value || '').replace(/[\u0000-\u001F]/g, '').trim();
+}
+
+function extractUrl_(text) {
+  var matched = String(text || '').match(/https?:\/\/[^\s　]+/);
+  if (!matched) return '';
+  return matched[0].replace(/[)）】、。,.]+$/g, '');
+}
+
+function isImmediateTime_(timeRaw) {
+  if (timeRaw === '' || timeRaw === null || timeRaw === undefined) return true;
+  if (Object.prototype.toString.call(timeRaw) === '[object Date]') return false;
+  if (typeof timeRaw === 'number') return false;
+  return /即時|直後/.test(String(timeRaw));
+}
+
+function isDueTime_(timeRaw) {
+  if (isImmediateTime_(timeRaw)) return true;
+  var target = scheduledMinutes_(timeRaw);
+  if (target === null) return false;
+  return nowMinutes_() >= target;
+}
+
+function scheduledMinutes_(timeRaw) {
+  if (Object.prototype.toString.call(timeRaw) === '[object Date]' && !isNaN(timeRaw.getTime())) {
+    return Number(Utilities.formatDate(timeRaw, TZ, 'H')) * 60 + Number(Utilities.formatDate(timeRaw, TZ, 'm'));
+  }
+  if (typeof timeRaw === 'number' && isFinite(timeRaw)) {
+    var fraction = timeRaw % 1;
+    if (fraction < 0) fraction += 1;
+    return Math.round(fraction * 24 * 60) % (24 * 60);
+  }
+  var matched = String(timeRaw || '').trim().match(/(\d{1,2})\s*[:：]\s*(\d{2})/);
+  if (!matched) return null;
+  var minutes = Number(matched[1]) * 60 + Number(matched[2]);
+  if (minutes < 0 || minutes >= 24 * 60) return null;
+  return minutes;
+}
+
+function nowMinutes_() {
+  return Number(Utilities.formatDate(new Date(), TZ, 'H')) * 60 + Number(Utilities.formatDate(new Date(), TZ, 'm'));
+}
+
+function loadSentKeys_() {
+  var sheet = getDeliveryLogSheet_();
+  var values = sheet.getDataRange().getValues();
+  var sent = {};
+  for (var i = 1; i < values.length; i++) {
+    var userId = String(values[i][0] || '').trim();
+    var ymd = sheetDateToYmd_(values[i][1]);
+    var day = values[i][2];
+    if (!userId || !ymd || day === '' || day === null) continue;
+    sent[sentKey_(userId, ymd, day)] = true;
+  }
+  return sent;
+}
+
+function appendDeliveryLog_(userId, addedYmd, days) {
+  getDeliveryLogSheet_().appendRow([
+    userId,
+    addedYmd,
+    days,
+    Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss')
+  ]);
+}
+
+function sentKey_(userId, ymd, day) {
+  return userId + '\t' + ymd + '\t' + String(Number(day));
+}
+
+function getDeliveryLogSheet_() {
+  var spreadsheet = openSpreadsheet_();
+  var sheet = spreadsheet.getSheetByName(LOG_SHEET_NAME);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(LOG_SHEET_NAME);
+    sheet.getRange(1, 1, 1, LOG_HEADERS.length).setValues([LOG_HEADERS]);
+    sheet.setFrozenRows(1);
+  } else if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, LOG_HEADERS.length).setValues([LOG_HEADERS]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function deliverMessages_(userId, messages, replyToken) {
+  if (!messages.length) return { ok: true, message: '' };
+  if (replyToken) {
+    var first = messages.slice(0, 5);
+    var rest = messages.slice(5);
+    var replied = postLineMessages_('https://api.line.me/v2/bot/message/reply', {
+      replyToken: replyToken,
+      messages: first
+    });
+    if (replied.ok) {
+      if (!rest.length) return replied;
+      return pushMessages_(userId, rest);
+    }
+  }
+  return pushMessages_(userId, messages);
+}
+
+function pushMessages_(userId, messages) {
+  if (!userId) return { ok: false, message: '送信先がありません。' };
+  for (var i = 0; i < messages.length; i += 5) {
+    var posted = postLineMessages_('https://api.line.me/v2/bot/message/push', {
+      to: userId,
+      messages: messages.slice(i, i + 5)
+    });
+    if (!posted.ok) return posted;
+  }
+  return { ok: true, message: '' };
+}
+
+function postLineMessages_(url, body) {
+  var token = lineToken_();
+  if (!token) {
+    return { ok: false, message: 'LINEのトークンが読み取れていません。スクリプトプロパティの名前を確認してください。' };
+  }
+  var response = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: JSON.stringify(body),
+    muteHttpExceptions: true
+  });
+  var code = response.getResponseCode();
+  if (code >= 200 && code < 300) return { ok: true, message: '' };
+  return { ok: false, message: 'LINEからエラーが返りました（' + code + '）。' };
+}
+
+function openSpreadsheet_() {
+  var id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || SPREADSHEET_ID;
+  return SpreadsheetApp.openById(id);
 }
 
 function getFriendsSheet_() {
-  var spreadsheet = SpreadsheetApp.openById(
-    PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || SPREADSHEET_ID
-  );
+  var spreadsheet = openSpreadsheet_();
   var sheet = spreadsheet.getSheetByName(FRIEND_SHEET_NAME);
   if (!sheet) {
     var first = spreadsheet.getSheetById(0) || spreadsheet.getSheets()[0];
@@ -305,8 +542,7 @@ function daysBetween_(fromYmd, toYmd) {
 }
 
 function getSheet_() {
-  var id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || SPREADSHEET_ID;
-  var spreadsheet = SpreadsheetApp.openById(id);
+  var spreadsheet = openSpreadsheet_();
   var sheet = spreadsheet.getSheetById(0) || spreadsheet.getSheets()[0];
   if (!sheet) throw new Error('シートが見つかりません');
   return sheet;
@@ -337,41 +573,12 @@ function checkLine_() {
 }
 
 function sendLine_(userId, text) {
-  var token = lineToken_();
-  if (!token || !userId) {
-    return { ok: false, message: 'LINEのトークンが読み取れていません。スクリプトプロパティの名前を確認してください。' };
+  var sent = pushMessages_(userId, [{ type: 'text', text: text }]);
+  if (sent.ok) return sent;
+  if (sent.message && sent.message.indexOf('エラー') !== -1) {
+    return { ok: false, message: sent.message + '通知先のIDが、この公式LINEのIDか確認してください。' };
   }
-  var response = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
-    method: 'post',
-    contentType: 'application/json',
-    headers: { Authorization: 'Bearer ' + token },
-    payload: JSON.stringify({
-      to: userId,
-      messages: [{ type: 'text', text: text }]
-    }),
-    muteHttpExceptions: true
-  });
-  var code = response.getResponseCode();
-  if (code >= 200 && code < 300) return { ok: true, message: '' };
-  return { ok: false, message: 'LINEからエラーが返りました（' + code + '）。通知先のIDが、この公式LINEのIDか確認してください。' };
-}
-
-function replyLine_(replyToken, text) {
-  var token = lineToken_();
-  if (!token || !replyToken) return { ok: false, message: '' };
-  var response = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
-    method: 'post',
-    contentType: 'application/json',
-    headers: { Authorization: 'Bearer ' + token },
-    payload: JSON.stringify({
-      replyToken: replyToken,
-      messages: [{ type: 'text', text: text }]
-    }),
-    muteHttpExceptions: true
-  });
-  var code = response.getResponseCode();
-  if (code >= 200 && code < 300) return { ok: true, message: '' };
-  return { ok: false, message: '' };
+  return sent;
 }
 
 function lineToken_() {
