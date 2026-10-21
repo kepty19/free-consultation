@@ -272,6 +272,54 @@ function installNurturingTrigger() {
   ScriptApp.newTrigger('sendNurturingMessages').timeBased().everyMinutes(30).create();
 }
 
+function sendAllContentsNow() {
+  var userId = soleCurrentFriendId_();
+  var messages = allContentMessages_();
+  if (!messages.length) throw new Error('送るコンテンツがありません。');
+  var sent = pushMessages_(userId, messages);
+  if (!sent.ok) throw new Error(sent.message || '送信できませんでした。');
+  Logger.log('試験送信しました。通数: ' + messages.length);
+}
+
+function allContentMessages_() {
+  var messages = [];
+  loadDeliveryContents_().forEach(function (item) {
+    if (item.text !== '') messages.push({ type: 'text', text: item.text });
+    item.cards.forEach(function (raw) {
+      var card = parseCardMessage_(raw);
+      if (card) messages.push(card);
+    });
+  });
+  return messages;
+}
+
+function soleCurrentFriendId_() {
+  var values = getFriendsSheet_().getDataRange().getValues();
+  var ids = [];
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][2] || '').trim() !== '友だち') continue;
+    var userId = String(values[i][0] || '').trim();
+    if (userId && ids.indexOf(userId) === -1) ids.push(userId);
+  }
+  if (ids.length > 1) {
+    throw new Error('友だちは' + ids.length + '名です。1名のときだけ送れます。');
+  }
+  if (ids.length === 1) return ids[0];
+
+  var fallback = NOTIFY_LINE_USER_ID;
+  var token = lineToken_();
+  if (!token || !fallback) throw new Error('送信先が見つかりません。');
+  var profile = UrlFetchApp.fetch('https://api.line.me/v2/bot/profile/' + fallback, {
+    method: 'get',
+    headers: { Authorization: 'Bearer ' + token },
+    muteHttpExceptions: true
+  });
+  if (profile.getResponseCode() !== 200) {
+    throw new Error('友だちシートに送信先がなく、通知先のLINEにも送れません。');
+  }
+  return fallback;
+}
+
 function sendDueDeliveries_(opts, ctx) {
   var userId = String(opts.userId || '').trim();
   var addedYmd = String(opts.addedYmd || '').trim();
